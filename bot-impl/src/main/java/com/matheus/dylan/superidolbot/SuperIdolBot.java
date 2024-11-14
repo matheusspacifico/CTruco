@@ -42,15 +42,18 @@ public class SuperIdolBot implements BotServiceProvider {
         int manilhas = countManilhas(intel);
         int strongCards = countStrongCard(intel);
 
+        //if the opponent would win if we forfeit, we play the hand;
         if (intel.getOpponentScore() == 11) {
             return true;
         }
-
+        //if the opponent wins if we play and lose, we only play if we have a good hand;
         if (intel.getOpponentScore() >= 9) {
             if (manilhas >= 2) return true;
             if (manilhas > 0 && strongCards > 0) return true;
             if (strongCards == 3) return true;
         }
+
+        //if we won't lose the game by losing this hand, we play if we have a good hand overall;
         return totalHandValue(intel) > GOOD_HAND_STRENGTH_THRESHOLD;
     }
 
@@ -60,21 +63,24 @@ public class SuperIdolBot implements BotServiceProvider {
         int manilhas = countManilhas(intel);
         int strongCards = countStrongCard(intel);
 
+        //we never raise on the first round
         if (roundCount == 0) return false;
 
+        //on the second round, raise if we won the first round or if both remaining cards are strong;
         if (roundCount == 1){
             if (wonFirstRound(intel)) return true;
             if (manilhas == 2) return true;
             if (manilhas > 0  && strongCards > 0) return true;
         }
 
+        //if the opponent played their card first and our last card is stronger, we raise;
         if (roundCount == 2){
             Optional<TrucoCard> opponentCard = intel.getOpponentCard();
             if (opponentCard.isPresent()){
                 TrucoCard myCard = intel.getCards().get(0);
                 return myCard.relativeValue(intel.getVira()) > opponentCard.get().relativeValue(intel.getVira());
             }
-
+            //if our last card is strong or a manilha, we raise;
             if (strongCards > 0) return true;
             return manilhas > 0;
         }
@@ -87,10 +93,11 @@ public class SuperIdolBot implements BotServiceProvider {
         int roundCount = intel.getRoundResults().size();
         int manilhas = countManilhas(intel);
 
-        if (roundCount == 0) {
+        if (roundCount == 0) { //first round
             Optional<TrucoCard> opponentCard = intel.getOpponentCard();
+            //if the opponent played the first card:
             if (opponentCard.isPresent()) {
-                // Weakest card that beats the opponent card or else the weakest from hand
+                // current optimal card = weakest card that beats the opponent card or else the WEAKEST from hand;
                 TrucoCard optimalCard = intel.getCards().stream()
                         .filter(card -> card.relativeValue(intel.getVira()) > opponentCard.get().relativeValue(intel.getVira()))
                         .min(Comparator.comparingInt(card -> card.relativeValue(intel.getVira())))
@@ -98,15 +105,16 @@ public class SuperIdolBot implements BotServiceProvider {
 
                 return CardToPlay.of(optimalCard);
             }
-
+            //if the hand is really bad, play the worst card;
             if (totalHandValue(intel) <= BAD_HAND_STRENGTH_THRESHOLD) return CardToPlay.of(weakestCard(intel));
+            //otherwise, play the best card;
             return CardToPlay.of(strongestCard(intel));
         }
 
-        if (roundCount == 1) {
-            Optional<TrucoCard> opponentCard = intel.getOpponentCard();
+        if (roundCount == 1) { //round 2
+            Optional<TrucoCard> opponentCard = intel.getOpponentCard(); //if the opponent plays first, it means they won first round;
             if (opponentCard.isPresent()){
-                // Weakest card that beats the opponent card or else the strongest from hand
+                // current optimal card = weakest card that beats the opponent card or else the STRONGEST from hand;
                 TrucoCard optimalCard = intel.getCards().stream()
                         .filter(card -> card.relativeValue(intel.getVira()) >  opponentCard.get().relativeValue(intel.getVira()))
                         .min(Comparator.comparingInt(card -> card.relativeValue(intel.getVira())))
@@ -115,13 +123,12 @@ public class SuperIdolBot implements BotServiceProvider {
                 return CardToPlay.of(optimalCard);
             }
 
-            // Will save a manilha for the next round
+            // if we have a good card AND a manilha, this will save a manilha for the last round
             if (totalHandValue(intel) <= AVERAGE_HAND_STRENGTH_THRESHOLD && manilhas > 0) return CardToPlay.of(weakestCard(intel));
 
-            return CardToPlay.of(strongestCard(intel));
+            return CardToPlay.of(strongestCard(intel)); //otherwise, play the strongest card;
         }
-
-        return CardToPlay.of(intel.getCards().get(0));
+        return CardToPlay.of(intel.getCards().get(0)); //only runs on last round, plays the only remaining card (duh);
     }
 
     @Override
@@ -130,34 +137,37 @@ public class SuperIdolBot implements BotServiceProvider {
         int manilhas = countManilhas(intel);
         int strongCards = countStrongCard(intel);
 
-        if (roundCount == 0) {
-            if (manilhas == 2) return 1;
-            if (manilhas > 0 && strongCards > 0) return 1;
+        if (roundCount == 0) { // first round
+            if (manilhas == 2) return 1; // 2 manilhas = raise;
+            if (manilhas > 0 && strongCards > 0) return 1; //good hand overall = raise;
 
-            if (manilhas > 0) return 0;
-            if (totalHandValue(intel) > GOOD_HAND_STRENGTH_THRESHOLD) return 0;
+            if (manilhas > 0) return 0; // 1 manilha = accept truco;
+            if (totalHandValue(intel) > GOOD_HAND_STRENGTH_THRESHOLD) return 0; // if the overall hand value is good, accept truco;
 
-            return -1;
+            return -1; // otherwise, run;
         }
 
-        if (roundCount == 1){
+        if (roundCount == 1){ // second round has the exact same logic, except for the last "if"
             if (manilhas == 2) return 1;
             if (manilhas > 0 && strongCards > 0) return 1;
             if (wonFirstRound(intel) && strongCards > 0) return 1;
 
             if (manilhas > 0) return 0;
             if (totalHandValue(intel) > AVERAGE_HAND_STRENGTH_THRESHOLD) return 0;
+            //the hand value required to accept truco is lowered from good to average
 
             return -1;
         }
 
         if (roundCount == 2){
-            if (manilhas > 0) return 1;
+            if (manilhas > 0) return 1; // if we have a manilha, raise
             if (wonFirstRound(intel) && totalHandValue(intel) >= BAD_HAND_STRENGTH_THRESHOLD) return 1;
+            //if we won the first round (tiebreaker) and our hand isnt bad, raise
 
             if (totalHandValue(intel) >= BAD_HAND_STRENGTH_THRESHOLD) return 0;
+            //if we didn't win first round and our hand isn't bad, check;
 
-            return -1;
+            return -1; //run
         }
 
         return -1;
